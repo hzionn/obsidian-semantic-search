@@ -15,16 +15,16 @@ Pre-requisites:
 
 - (recommand) Ollama: for local embedding models
 
-- **todo**
+- *todo*
 
 ## Usage
 
-- **todo**
+- *todo*
 
 ## Settings
 
-- **todo**
+- *todo*
 
 ## Development
 
-- **todo**
+- *todo*
