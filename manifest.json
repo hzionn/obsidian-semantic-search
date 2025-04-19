@@ -1,9 +1,9 @@
 {
-	"id": "semantic-search",
-	"name": "Semantic Search",
+	"id": "obsidian-semantic-search",
+	"name": "Obsidian Semantic Search",
 	"version": "0.0.1",
 	"minAppVersion": "0.15.0",
-	"description": "Provide semantic search capabilities for your notes using API or local model.",
+	"description": "Provide semantic search capabilities for your obsidian notes using API or local model.",
 	"author": "Zi-Onn Hoe",
 	"authorUrl": "https://github.com/hzionn",
 	"isDesktopOnly": true
