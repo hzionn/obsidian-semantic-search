@@ -1,11 +1,10 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
+	"id": "semantic-search",
+	"name": "Semantic Search",
+	"version": "0.0.1",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"description": "Provide semantic search capabilities for your notes using API or local model.",
+	"author": "Zi-Onn Hoe",
+	"authorUrl": "https://github.com/hzionn",
+	"isDesktopOnly": true
 }
