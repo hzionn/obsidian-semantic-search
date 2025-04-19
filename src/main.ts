@@ -32,9 +32,11 @@ export default class SemanticSearchPlugin extends Plugin {
 		const ribbonIconEl = this.addRibbonIcon(
 			"dice",
 			"Sample Plugin",
-			(evt: MouseEvent) => {
+			async (evt: MouseEvent) => {
 				// Called when the user clicks the icon.
-				new Notice("This is a sample notice!");
+				const files = await this.traverseAndReadMarkdownFiles();
+				const fileList = files.map(f => f.path).join("\n");
+				new Notice(`Markdown files in vault:\n${fileList}`);
 			}
 		);
 
@@ -113,6 +115,20 @@ export default class SemanticSearchPlugin extends Plugin {
 	async saveSettings() {
 		await this.saveData(this.settings);
 	}
+
+	/**
+	 * Traverses all markdown files in the vault and reads their contents.
+	 * @returns Promise resolving to an array of objects with file path and content
+	 */
+	async traverseAndReadMarkdownFiles(): Promise<{ path: string; content: string }[]> {
+		const markdownFiles = this.app.vault.getMarkdownFiles();
+		const results: { path: string; content: string }[] = [];
+		for (const file of markdownFiles) {
+			const content = await this.app.vault.read(file);
+			results.push({ path: file.path, content });
+		}
+		return results;
+	}
 }
 
 class SampleModal extends Modal {
@@ -159,7 +175,7 @@ class SampleSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName("Max Number of Notes")
-			.setDesc("Maximum number of notes to show in the search results")
+			.setDesc("Maximum number of notes to show in the search panel")
 			.addText((text) =>
 				text
 					.setPlaceholder("e.g. 5")
