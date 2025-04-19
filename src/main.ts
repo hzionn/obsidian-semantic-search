@@ -9,16 +9,18 @@ import {
 	Setting,
 } from "obsidian";
 
-// Remember to rename these classes and interfaces!
-
 interface MyPluginSettings {
-	mySetting: string;
 	maxNumberOfNotes: number;
+	chatModel: string;
+	embeddingModel: string;
+	availableModels?: string[]; // store available models for dropdown
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: "default",
 	maxNumberOfNotes: 5,
+	chatModel: "",
+	embeddingModel: "",
+	availableModels: [],
 };
 
 export default class SemanticSearchPlugin extends Plugin {
@@ -28,15 +30,65 @@ export default class SemanticSearchPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
+		let localModels: any = null;
+		try {
+			const response = await fetch("http://localhost:11434/api/tags");
+			localModels = await response.json();
+			if (Array.isArray(localModels.models)) {
+				const modelNames = localModels.models.map(
+					(model) => model.name
+				);
+				this.settings.availableModels = modelNames;
+				await this.saveSettings();
+				new Notice(`Available models: ${modelNames.join(", ")}`);
+			} else {
+				this.settings.availableModels = [];
+				await this.saveSettings();
+				new Notice("No models found from Ollama.");
+			}
+		} catch (error) {
+			this.settings.availableModels = [];
+			await this.saveSettings();
+			new Notice("Failed to fetch from Ollama. Is the server running?");
+		}
+
+		let data: any = null;
+		try {
+			const response = await fetch("http://localhost:11434/api/chat", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model: this.settings.chatModel,
+					messages: [
+						{ role: "user", content: "Why is the sky blue?" },
+					],
+				}),
+			});
+			data = await response.json();
+			if (data.error && data.error.includes("model")) {
+				new Notice(
+					`The requested model ${this.settings.chatModel} is not available in Ollama. Please pull or select a different model.`
+				);
+			} else if (data.message && data.message.content) {
+				new Notice(data.message.content);
+			} else {
+				new Notice("Received an unexpected response from Ollama.");
+			}
+		} catch (error) {
+			new Notice("Failed to fetch from Ollama. Is the server running?");
+		}
+
 		// This creates an icon in the left ribbon.
+		// Called when the user clicks the icon.
 		const ribbonIconEl = this.addRibbonIcon(
-			"dice",
-			"Sample Plugin",
+			"experiment",
+			"play with new functionality",
 			async (evt: MouseEvent) => {
-				// Called when the user clicks the icon.
 				const files = await this.traverseAndReadMarkdownFiles();
-				const fileList = files.map(f => f.path).join("\n");
-				new Notice(`Markdown files in vault:\n${fileList}`);
+				const fileNames = files.map((f) => f.path).join("\n");
+				const fileContents = files.map((f) => f.content).join("\n");
+				new Notice(`Markdown files in vault:\n${fileNames}`);
+				new Notice(`Contents of files:\n${fileContents}`);
 			}
 		);
 
@@ -120,7 +172,9 @@ export default class SemanticSearchPlugin extends Plugin {
 	 * Traverses all markdown files in the vault and reads their contents.
 	 * @returns Promise resolving to an array of objects with file path and content
 	 */
-	async traverseAndReadMarkdownFiles(): Promise<{ path: string; content: string }[]> {
+	async traverseAndReadMarkdownFiles(): Promise<
+		{ path: string; content: string }[]
+	> {
 		const markdownFiles = this.app.vault.getMarkdownFiles();
 		const results: { path: string; content: string }[] = [];
 		for (const file of markdownFiles) {
@@ -161,18 +215,42 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName("Setting #1")
-			.setDesc("It's a secret")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter your secret")
-					.setValue(this.plugin.settings.mySetting)
-					.onChange(async (value) => {
-						this.plugin.settings.mySetting = value;
-						await this.plugin.saveSettings();
-					})
-			);
+			.setName("Chat Model")
+			.setDesc("Model to use for chat")
+			.addDropdown((dropdown) => {
+				const models = this.plugin.settings.availableModels || [];
+				if (models.length === 0) {
+					dropdown.addOption("", "No models found");
+				} else {
+					for (const model of models) {
+						dropdown.addOption(model, model);
+					}
+				}
+				dropdown.setValue(this.plugin.settings.chatModel);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.chatModel = value;
+					await this.plugin.saveSettings();
+				});
+			});
 
+		new Setting(containerEl)
+			.setName("Embedding Model")
+			.setDesc("Model to use for embedding")
+			.addDropdown((dropdown) => {
+				const models = this.plugin.settings.availableModels || [];
+				if (models.length === 0) {
+					dropdown.addOption("", "No models found");
+				} else {
+					for (const model of models) {
+						dropdown.addOption(model, model);
+					}
+				}
+				dropdown.setValue(this.plugin.settings.embeddingModel);
+				dropdown.onChange(async (value) => {
+					this.plugin.settings.embeddingModel = value;
+					await this.plugin.saveSettings();
+				});
+			});
 		new Setting(containerEl)
 			.setName("Max Number of Notes")
 			.setDesc("Maximum number of notes to show in the search panel")
