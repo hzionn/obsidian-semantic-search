@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS: MyPluginSettings = {
 
 export default class SemanticSearchPlugin extends Plugin {
 	settings: MyPluginSettings;
+	embeddings: Map<string, number[]> = new Map(); // Store embeddings for each note
 
 	// onload is called when your plugin is loaded (enabled)
 	async onload() {
@@ -149,7 +150,21 @@ export default class SemanticSearchPlugin extends Plugin {
 		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
 		this.registerInterval(
 			window.setInterval(() => console.log("setInterval"), 5 * 60 * 1000)
-		);
+			);
+
+		// Create embeddings for all notes in the vault
+		await this.createEmbeddingsForAllNotes();
+
+		// Add a command to trigger the semantic search and display the results
+		this.addCommand({
+			id: "perform-semantic-search",
+			name: "Perform Semantic Search",
+			callback: async () => {
+				const query = await this.getUserQuery();
+				const results = await this.performSemanticSearch(query);
+				this.displaySearchResults(results);
+			},
+		});
 	}
 
 	// onunload is called when your plugin is disabled
@@ -180,8 +195,99 @@ export default class SemanticSearchPlugin extends Plugin {
 		for (const file of markdownFiles) {
 			const content = await this.app.vault.read(file);
 			results.push({ path: file.path, content });
+			// Create embeddings for each note
+			const embedding = await this.createEmbeddingForNote(content);
+			this.embeddings.set(file.path, embedding);
 		}
 		return results;
+	}
+
+	/**
+	 * Creates embeddings for all notes in the vault.
+	 */
+	async createEmbeddingsForAllNotes() {
+		const files = await this.traverseAndReadMarkdownFiles();
+		for (const file of files) {
+			const embedding = await this.createEmbeddingForNote(file.content);
+			this.embeddings.set(file.path, embedding);
+		}
+	}
+
+	/**
+	 * Creates an embedding for a given note using the selected embedding model.
+	 * @param noteContent The content of the note
+	 * @returns Promise resolving to the embedding vector
+	 */
+	async createEmbeddingForNote(noteContent: string): Promise<number[]> {
+		try {
+			const response = await fetch("http://localhost:11434/api/embedding", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					model: this.settings.embeddingModel,
+					input: noteContent,
+				}),
+			});
+			const data = await response.json();
+			if (data.embedding) {
+				return data.embedding;
+			} else {
+				new Notice("Failed to create embedding for the note.");
+				return [];
+			}
+		} catch (error) {
+			new Notice("Failed to fetch from Ollama. Is the server running?");
+			return [];
+		}
+	}
+
+	/**
+	 * Performs semantic search using the embeddings and the input query.
+	 * @param query The input query
+	 * @returns Promise resolving to an array of search results
+	 */
+	async performSemanticSearch(query: string): Promise<{ path: string; score: number }[]> {
+		const queryEmbedding = await this.createEmbeddingForNote(query);
+		const results: { path: string; score: number }[] = [];
+		for (const [path, embedding] of this.embeddings) {
+			const score = this.calculateCosineSimilarity(queryEmbedding, embedding);
+			results.push({ path, score });
+		}
+		results.sort((a, b) => b.score - a.score); // Sort results by score in descending order
+		return results.slice(0, this.settings.maxNumberOfNotes); // Return top N results
+	}
+
+	/**
+	 * Calculates the cosine similarity between two vectors.
+	 * @param vec1 The first vector
+	 * @param vec2 The second vector
+	 * @returns The cosine similarity score
+	 */
+	calculateCosineSimilarity(vec1: number[], vec2: number[]): number {
+		const dotProduct = vec1.reduce((sum, val, i) => sum + val * vec2[i], 0);
+		const magnitude1 = Math.sqrt(vec1.reduce((sum, val) => sum + val * val, 0));
+		const magnitude2 = Math.sqrt(vec2.reduce((sum, val) => sum + val * val, 0));
+		return dotProduct / (magnitude1 * magnitude2);
+	}
+
+	/**
+	 * Prompts the user to enter a query for semantic search.
+	 * @returns Promise resolving to the user's query
+	 */
+	async getUserQuery(): Promise<string> {
+		return new Promise((resolve) => {
+			const modal = new QueryModal(this.app, resolve);
+			modal.open();
+		});
+	}
+
+	/**
+	 * Displays the search results to the user.
+	 * @param results The search results
+	 */
+	displaySearchResults(results: { path: string; score: number }[]) {
+		const resultText = results.map((result) => `${result.path} (score: ${result.score.toFixed(2)})`).join("\n");
+		new Notice(`Search results:\n${resultText}`);
 	}
 }
 
@@ -270,5 +376,38 @@ class SampleSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+	}
+}
+
+class QueryModal extends Modal {
+	private resolve: (query: string) => void;
+
+	constructor(app: App, resolve: (query: string) => void) {
+		super(app);
+		this.resolve = resolve;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.createEl("h2", { text: "Enter your search query" });
+
+		const inputEl = contentEl.createEl("input", { type: "text" });
+		inputEl.addEventListener("keydown", (event) => {
+			if (event.key === "Enter") {
+				this.resolve(inputEl.value);
+				this.close();
+			}
+		});
+
+		const submitButton = contentEl.createEl("button", { text: "Search" });
+		submitButton.addEventListener("click", () => {
+			this.resolve(inputEl.value);
+			this.close();
+		});
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
 	}
 }
