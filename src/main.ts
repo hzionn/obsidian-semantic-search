@@ -37,7 +37,7 @@ export default class SemanticSearchPlugin extends Plugin {
 			localModels = await response.json();
 			if (Array.isArray(localModels.models)) {
 				const modelNames = localModels.models.map(
-					(model) => model.name
+					(model: { name: string }) => model.name
 				);
 				this.settings.availableModels = modelNames;
 				await this.saveSettings();
@@ -53,30 +53,39 @@ export default class SemanticSearchPlugin extends Plugin {
 			new Notice("Failed to fetch from Ollama. Is the server running?");
 		}
 
-		let data: any = null;
-		try {
-			const response = await fetch("http://localhost:11434/api/chat", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					model: this.settings.chatModel,
-					messages: [
-						{ role: "user", content: "Why is the sky blue?" },
-					],
-				}),
-			});
-			data = await response.json();
-			if (data.error && data.error.includes("model")) {
-				new Notice(
-					`The requested model ${this.settings.chatModel} is not available in Ollama. Please pull or select a different model.`
-				);
-			} else if (data.message && data.message.content) {
-				new Notice(data.message.content);
-			} else {
-				new Notice("Received an unexpected response from Ollama.");
+		// Only check chat model if it is set and available
+		if (
+			this.settings.chatModel &&
+			this.settings.availableModels?.includes(this.settings.chatModel)
+		) {
+			let data: any = null;
+			try {
+				const response = await fetch("http://localhost:11434/api/chat", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						model: this.settings.chatModel,
+						messages: [
+							{ role: "user", content: "Why is the sky blue?" },
+						],
+					}),
+				});
+				data = await response.json();
+				console.log("Ollama /api/chat response:", data);
+				if (data.error && data.error.includes("model")) {
+					new Notice(
+						`The requested model ${this.settings.chatModel} is not available in Ollama. Please pull or select a different model.`
+					);
+				} else if (data.message && data.message.content) {
+					new Notice(data.message.content);
+				} else {
+					new Notice(
+						"Ollama did not return a chat response. Please check your model and Ollama server."
+					);
+				}
+			} catch (error) {
+				new Notice("Failed to fetch from Ollama. Is the server running?");
 			}
-		} catch (error) {
-			new Notice("Failed to fetch from Ollama. Is the server running?");
 		}
 
 		// This creates an icon in the left ribbon.
@@ -150,7 +159,7 @@ export default class SemanticSearchPlugin extends Plugin {
 		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
 		this.registerInterval(
 			window.setInterval(() => console.log("setInterval"), 5 * 60 * 1000)
-			);
+		);
 
 		// Create embeddings for all notes in the vault
 		await this.createEmbeddingsForAllNotes();
@@ -220,19 +229,20 @@ export default class SemanticSearchPlugin extends Plugin {
 	 */
 	async createEmbeddingForNote(noteContent: string): Promise<number[]> {
 		try {
-			const response = await fetch("http://localhost:11434/api/embedding", {
+			const response = await fetch("http://localhost:11434/api/embeddings", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					model: this.settings.embeddingModel,
-					input: noteContent,
+					prompt: noteContent,
 				}),
 			});
 			const data = await response.json();
-			if (data.embedding) {
+			console.log("Embedding API response:", data);
+			if (Array.isArray(data.embedding) && data.embedding.length > 0) {
 				return data.embedding;
 			} else {
-				new Notice("Failed to create embedding for the note.");
+				new Notice("Failed to create embedding for the note. " + JSON.stringify(data));
 				return [];
 			}
 		} catch (error) {
@@ -264,9 +274,21 @@ export default class SemanticSearchPlugin extends Plugin {
 	 * @returns The cosine similarity score
 	 */
 	calculateCosineSimilarity(vec1: number[], vec2: number[]): number {
+		if (
+			!Array.isArray(vec1) ||
+			!Array.isArray(vec2) ||
+			vec1.length === 0 ||
+			vec2.length === 0 ||
+			vec1.length !== vec2.length
+		) {
+			return 0;
+		}
 		const dotProduct = vec1.reduce((sum, val, i) => sum + val * vec2[i], 0);
 		const magnitude1 = Math.sqrt(vec1.reduce((sum, val) => sum + val * val, 0));
 		const magnitude2 = Math.sqrt(vec2.reduce((sum, val) => sum + val * val, 0));
+		if (magnitude1 === 0 || magnitude2 === 0) {
+			return 0;
+		}
 		return dotProduct / (magnitude1 * magnitude2);
 	}
 
